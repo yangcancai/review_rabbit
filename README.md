@@ -11,5 +11,4 @@ Required
 Build
 -----
 
-    $ rebar3 compile
-# review_rabbit
+    $ make co
