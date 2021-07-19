@@ -1,0 +1,52 @@
+[  {sasl, [
+    {sasl_error_logger, {file, "logs/sasl.log"}}
+  ]},
+  {lager, [
+    {log_root, "${REVIEW_RABBIT_LOG_ROOT}"},
+    %% Default handlers for lager/lager_event
+    {colored, true},
+
+    {async_threshold, 5000},
+    {async_threshold_window, 500},
+    {error_logger_flush_queue, true},
+    {error_logger_flush_threshold, 1000},
+    {error_logger_hwm, 200},
+    {killer_hwm, 10000},
+    {killer_reinstall_after, 5000},
+
+    {crash_log, "crash.log"},
+    {crash_log_msg_size, 65536},
+    {crash_log_size, 524288000},
+    {crash_log_date, "$D0"},
+    {crash_log_count, 30},
+
+    {handlers, [
+        {lager_console_backend, [{level, ${REVIEW_RABBIT_LOG_LEVEL}}, {formatter, lager_default_formatter}, {formatter_config, [{eol, "\e[0m\r\n"}]}]},
+        {lager_file_backend, [{level, "=error"}, {file, "error.log"}, {size, 524288000}, {date, "$D0"}, {count, 30}]},
+        {lager_file_backend, [{level, "=warning"}, {file, "warning.log"}, {size, 524288000}, {date, "$D0"}, {count, 30}]},
+        {lager_file_backend, [{level, "=info"}, {file, "info.log"}, {size, 524288000}, {date, "$D0"}, {count, 30}]}
+        %%{lager_file_backend, [{level, "=debug"}, {file, "debug.log"}, {size, 10485760}, {date, "$D0"}, {count, 30}]}
+    ]}
+]
+},
+    {sync, [
+    {growl, all},
+    {log, all},
+    {non_descendants, fix},
+    {executable, auto},
+    {whitelisted_modules, []},
+    {excluded_modules, []}
+  ]},
+
+  {traceinstall, [
+   {port, ${REVIEW_RABBIT_PORT}},
+   {redis_ip, "${REVIEW_RABBIT_REDIS_IP}"},
+   {redis_port, ${REVIEW_RABBIT_REDIS_PORT}},
+   {redis_password, "${REVIEW_RABBIT_REDIS_PASSWORD}"},
+   {mysql_ip, "${REVIEW_RABBIT_MYSQL_IP}"},
+   {mysql_port, ${REVIEW_RABBIT_MYSQL_PORT}},
+   {mysql_password, "${REVIEW_RABBIT_MYSQL_PASSWORD}"},
+   {mysql_user, "${REVIEW_RABBIT_MYSQL_USER}"},
+   {mysql_db, "${REVIEW_RABBIT_MYSQL_DB}"}
+  ]}
+ ].

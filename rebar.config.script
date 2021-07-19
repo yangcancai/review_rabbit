@@ -1,0 +1,29 @@
+%% Update relx config
+Relx0 = lists:keyfind(relx, 1, CONFIG),
+{relx, [{release, {review_rabbit, _}, RelxApps0} | RelxT0]} = Relx0,
+{ok, VersionBin} = file:read_file(<<"VERSION">>),
+Version = string:strip(string:strip(binary_to_list(VersionBin),both,$\n)),
+Relx = {relx, [{release, {review_rabbit, Version}, RelxApps0}] ++ RelxT0},
+NewConfig=lists:keyreplace(relx, 1, CONFIG, Relx),
+%% profile
+{_,Profiles} = lists:keyfind(profiles, 1, NewConfig),
+Prod= proplists:get_value(prod, Profiles),
+ProdRelx = proplists:get_value(relx, Prod),
+ErtsPath = case filelib:wildcard("erts_*") of
+ [] ->
+    case os:getenv("ERTS_PATH") of
+        false ->
+            code:root_dir();
+        P ->
+            P
+    end;
+ [ErtsP] ->
+    ErtsP
+end,
+ProdRelx1 = lists:keyreplace(include_erts, 1, ProdRelx, {include_erts, ErtsPath}),
+ProdRelx2 = lists:keyreplace(system_libs, 1, ProdRelx1, {system_libs, ErtsPath ++ "/lib"}),
+Prod1 = lists:keyreplace(relx, 1, Prod, {relx, ProdRelx2}),
+Profiles1 = lists:keyreplace(prod, 1, Profiles, {prod, Prod1}),
+NewConfig1 = lists:keyreplace(profiles, 1, NewConfig, {profiles, Profiles1}),
+file:write_file("rebar.config.gen", io_lib:format("%%% auto generate ~n~p", [NewConfig1])),
+NewConfig1.

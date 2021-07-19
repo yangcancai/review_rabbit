@@ -1,0 +1,15 @@
+{application, review_rabbit,
+ [{description, "An OTP application"},
+  {vsn, "cat from VERSION"},
+  {registered, []},
+  {mod, {review_rabbit_app, []}},
+  {applications,
+   [kernel,
+    stdlib
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.

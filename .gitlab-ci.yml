@@ -1,0 +1,55 @@
+image: review_rabbit:latest
+#variables:
+   ## setting ci/cd variable
+  #SSH_USER: "admin"
+  #SSH_PORT: 99
+  #SSH_IP: 127.0.0.1
+  # SSH_PRIVATE_KEY: "" 
+before_script:
+  - export LANG=en_US.UTF-8
+  - erl -v
+  - git config --global credential.helper store
+  - echo "https://gitlab-ci-token:${CI_JOB_TOKEN}@git.teamcsys.com" > ~/.git-credentials
+  - sh tool.sh git_proxy
+  - unset http_proxy;unset HTTPS_PROXY;unset https_proxy;unset HTTP_PROXY
+  - git submodule update --init --recursive -f
+  - git reset --hard
+stages:
+  - deploy
+dev-deploy:
+  stage: deploy
+  only:
+    - develop 
+  except:
+    - tags
+  script:
+    - git submodule foreach git checkout develop 
+    - git submodule foreach git pull
+    - sh tool.sh release develop
+    - sh tool.sh ssh_restart
+  cache:
+    key: "review_rabbit_develop"
+    paths:
+      - _build/
+  tags:
+    - dockers_uat
+
+prod-deploy:
+  stage: deploy
+  only:
+    - master 
+  except:
+    - tags
+  environment: prod
+  script:
+    - git submodule foreach git checkout master
+    - git submodule foreach git pull
+    - sh tool.sh release master
+    - sh tool.sh ssh_restart
+
+  cache:
+    key: "review_rabbit_master"
+    paths:
+      - _build/
+  tags:
+    - dockers_prod 
