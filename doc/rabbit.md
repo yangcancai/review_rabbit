@@ -84,6 +84,7 @@ handle_method(#'basic.publish'{exchange    = ExchangeNameBin,
                                               },
                                    tx               = Tx,
                                    confirm_enabled  = ConfirmEnabled,
+                                   %% delivery_flow =  rabbit_misc:get_env(rabbit, mirroring_flow_control, true)
                                    delivery_flow    = Flow
                                    }) ->
     check_msg_size(Content, MaxMessageSize, GCThreshold),
@@ -110,6 +111,8 @@ handle_method(#'basic.publish'{exchange    = ExchangeNameBin,
         {ok, Message} ->
             Delivery = rabbit_basic:delivery(
                          Mandatory, DoConfirm, Message, MsgSeqNo),
+            %% 根据绑定的key查找对应的queue列表
+            %% 自定义的exchange插件实现的route入口就是这里 
             QNames = rabbit_exchange:route(Exchange, Delivery),
             rabbit_trace:tap_in(Message, QNames, ConnName, ChannelNum,
                                 Username, TraceState),
@@ -122,7 +125,8 @@ handle_method(#'basic.publish'{exchange    = ExchangeNameBin,
         {error, Reason} ->
             precondition_failed("invalid message: ~p", [Reason])
     end;
-    %% 发送消息到队列
+%% 发送消息到队列
+%% 如果没有绑定队列且mandatory=false，confirm=false，不做处理
 deliver_to_queues({#delivery{message   = #basic_message{exchange_name = XName},
                              confirm   = false,
                              mandatory = false},
@@ -138,7 +142,9 @@ deliver_to_queues({Delivery = #delivery{message    = Message = #basic_message{
                    DelQNames}, State = #ch{queue_names    = QNames,
                                            queue_monitors = QMons,
                                            queue_states = QueueStates0}) ->
+    %% 根据队列名称获取队列pid
     Qs = rabbit_amqqueue:lookup(DelQNames),
+    %% 发送消息到队列进程
     {DeliveredQPids, DeliveredQQPids, QueueStates} =
         rabbit_amqqueue:deliver(Qs, Delivery, QueueStates0),
     AllDeliveredQRefs = DeliveredQPids ++ [N || {N, _} <- DeliveredQQPids],
@@ -173,10 +179,14 @@ deliver_to_queues({Delivery = #delivery{message    = Message = #basic_message{
                       queue_monitors = QMons1},
     %% NB: the order here is important since basic.returns must be
     %% sent before confirms.
+    %% 处理mandatory主要是为了当没有绑定队列的时候返回basic.returns 回调
     ok = process_routing_mandatory(Mandatory, AllDeliveredQRefs,
                                    Message, State1),
     AllDeliveredQNames = [ QName || QRef        <- AllDeliveredQRefs,
                                     {ok, QName} <- [maps:find(QRef, QNames1)]],
+    %% 如果有绑定队列，那么把消息id存储到unconfirmed字段，
+    %% 否则把消息存储到confirmed字段
+    %% 等待接收emit_stats定时器处理发送ack或者nack给client
     State2 = process_routing_confirm(Confirm,
                                      AllDeliveredQRefs,
                                      AllDeliveredQNames,
@@ -192,6 +202,32 @@ deliver_to_queues({Delivery = #delivery{message    = Message = #basic_message{
             ok
     end,
     State2#ch{queue_states = QueueStates}.
+
+
+%% 当发送消息配置了mandatory=true
+%% 如果没有绑定队列会发送basic_return
+process_routing_mandatory(_Mandatory = true,
+                          _RoutedToQs = [],
+                          Msg, State) ->
+    ok = basic_return(Msg, State, no_route),
+    ok;
+%% 如果没有设置那么不对发送basic_return
+process_routing_mandatory(_Mandatory = false,
+                          _RoutedToQs = [],
+                          #basic_message{exchange_name = ExchangeName}, State) ->
+    ?INCR_STATS(exchange_stats, ExchangeName, 1, drop_unroutable, State),
+    ok;
+process_routing_mandatory(_, _, _, _) ->
+    ok.
+
+process_routing_confirm(false, _, _, _, _, State) ->
+    State;
+process_routing_confirm(true, [], _, MsgSeqNo, XName, State) ->
+    record_confirms([{MsgSeqNo, XName}], State);
+process_routing_confirm(true, QRefs, QNames, MsgSeqNo, XName, State) ->
+    State#ch{unconfirmed =
+        unconfirmed_messages:insert(MsgSeqNo, QNames, QRefs, XName,
+                                    State#ch.unconfirmed)}.
 
 ```
 
@@ -215,7 +251,7 @@ ensure_stats_timer(State) ->
     rabbit_event:ensure_stats_timer(State, #ch.stats_timer, emit_stats).
 
 
-%% 处理confimr事件
+%% 定时处理confirm事件
 handle_info(emit_stats, State) ->
     emit_stats(State),
     State1 = rabbit_event:reset_stats_timer(State, #ch.stats_timer),
@@ -295,4 +331,109 @@ send_nacks(Rs, Cs, State) ->
                                             multiple     = Multiple}
                       end, State).
 
+```
+
+## 3 队列进程(rabbit_amqqueue_process.erl)
+
+### 3.1 接收到channel发送的delivery
+
+```erlang
+handle_cast({deliver,
+                Delivery = #delivery{sender = Sender,
+                                     flow   = Flow},
+                SlaveWhenPublished},
+            State = #q{senders = Senders}) ->
+    Senders1 = case Flow of
+    %% In both credit_flow:ack/1 we are acking messages to the channel
+    %% process that sent us the message delivery. See handle_ch_down
+    %% for more info.
+                   flow   -> credit_flow:ack(Sender),
+                             case SlaveWhenPublished of
+                                 true  -> credit_flow:ack(Sender); %% [0]
+                                 false -> ok
+                             end,
+                             pmon:monitor(Sender, Senders);
+                   noflow -> Senders
+               end,
+    State1 = State#q{senders = Senders1},
+    noreply(maybe_deliver_or_enqueue(Delivery, SlaveWhenPublished, State1));
+```
+
+### 3.2 处理deliver或者入队
+
+```erlang
+maybe_deliver_or_enqueue(Delivery = #delivery{message = Message},
+                         Delivered,
+                         State = #q{overflow            = Overflow,
+                                    backing_queue       = BQ,
+                                    backing_queue_state = BQS,
+                                    dlx                 = DLX,
+                                    dlx_routing_key     = RK}) ->
+    send_mandatory(Delivery), %% must do this before confirms
+    %% 队列满了的处理方式：drop或者进入死信队列
+    case {will_overflow(Delivery, State), Overflow} of
+        {true, 'reject-publish'} ->
+            %% Drop publish and nack to publisher
+            send_reject_publish(Delivery, Delivered, State);
+        {true, 'reject-publish-dlx'} ->
+            %% Publish to DLX
+            with_dlx(
+              DLX,
+              fun (X) ->
+                      QName = qname(State),
+                      rabbit_dead_letter:publish(Message, maxlen, X, RK, QName)
+              end,
+              fun () -> ok end),
+            %% Drop publish and nack to publisher
+            send_reject_publish(Delivery, Delivered, State);
+        _ ->
+            {IsDuplicate, BQS1} = BQ:is_duplicate(Message, BQS),
+            State1 = State#q{backing_queue_state = BQS1},
+            case IsDuplicate of
+                true -> State1;
+                {true, drop} -> State1;
+                %% Drop publish and nack to publisher
+                {true, reject} ->
+                    send_reject_publish(Delivery, Delivered, State1);
+                %% Enqueue and maybe drop head later
+                false ->
+                    deliver_or_enqueue(Delivery, Delivered, State1)
+            end
+    end.
+
+deliver_or_enqueue(Delivery = #delivery{message = Message,
+                                        sender  = SenderPid,
+                                        flow    = Flow},
+                   Delivered,
+                   State = #q{backing_queue = BQ}) ->
+    {Confirm, State1} = send_or_record_confirm(Delivery, State),
+    Props = message_properties(Message, Confirm, State1),
+    case attempt_delivery(Delivery, Props, Delivered, State1) of
+        {delivered, State2} ->
+            State2;
+        %% The next one is an optimisation
+        {undelivered, State2 = #q{ttl = 0, dlx = undefined,
+                                  backing_queue_state = BQS,
+                                  msg_id_to_channel   = MTC}} ->
+            {BQS1, MTC1} = discard(Delivery, BQ, BQS, MTC),
+            State2#q{backing_queue_state = BQS1, msg_id_to_channel = MTC1};
+        {undelivered, State2 = #q{backing_queue_state = BQS}} ->
+
+            BQS1 = BQ:publish(Message, Props, Delivered, SenderPid, Flow, BQS),
+            {Dropped, State3 = #q{backing_queue_state = BQS2}} =
+                maybe_drop_head(State2#q{backing_queue_state = BQS1}),
+            QLen = BQ:len(BQS2),
+            %% optimisation: it would be perfectly safe to always
+            %% invoke drop_expired_msgs here, but that is expensive so
+            %% we only do that if a new message that might have an
+            %% expiry ends up at the head of the queue. If the head
+            %% remains unchanged, or if the newly published message
+            %% has no expiry and becomes the head of the queue then
+            %% the call is unnecessary.
+            case {Dropped, QLen =:= 1, Props#message_properties.expiry} of
+                {false, false,         _} -> State3;
+                {true,  true,  undefined} -> State3;
+                {_,     _,             _} -> drop_expired_msgs(State3)
+            end
+    end.
 ```
