@@ -2,6 +2,7 @@
 
 -define(TRACEINSTALL_CT, true).
 
+-include_lib("review_rabbit/include/review_rabbit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 

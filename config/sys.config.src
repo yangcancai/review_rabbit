@@ -38,15 +38,7 @@
     {excluded_modules, []}
   ]},
 
-  {traceinstall, [
-   {port, ${REVIEW_RABBIT_PORT}},
-   {redis_ip, "${REVIEW_RABBIT_REDIS_IP}"},
-   {redis_port, ${REVIEW_RABBIT_REDIS_PORT}},
-   {redis_password, "${REVIEW_RABBIT_REDIS_PASSWORD}"},
-   {mysql_ip, "${REVIEW_RABBIT_MYSQL_IP}"},
-   {mysql_port, ${REVIEW_RABBIT_MYSQL_PORT}},
-   {mysql_password, "${REVIEW_RABBIT_MYSQL_PASSWORD}"},
-   {mysql_user, "${REVIEW_RABBIT_MYSQL_USER}"},
-   {mysql_db, "${REVIEW_RABBIT_MYSQL_DB}"}
+  {review_rabbit, [
+   {enable_plugins, ${REVIEW_RABBIT_ENABLE_PLUGINS}}
   ]}
  ].

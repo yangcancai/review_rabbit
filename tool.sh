@@ -32,17 +32,7 @@ set_var(){
     # cp_doc
     export REVIEW_RABBIT_LOG_ROOT="logs"
 	export REVIEW_RABBIT_LOG_LEVEL="error"
-    export REVIEW_RABBIT_PORT="5001"
-    export REVIEW_RABBIT_NODE_NAME="review_rabbit@127.0.0.1"
-    export REVIEW_RABBIT_COOKIE="xxx"
-    export REVIEW_RABBIT_REDIS_IP="127.0.0.1"
-    export REVIEW_RABBIT_REDIS_PORT="6379"
-    export REVIEW_RABBIT_REDIS_PASSWORD="123456"
-    export REVIEW_RABBIT_MYSQL_IP="localhost"
-    export REVIEW_RABBIT_MYSQL_PORT="3306"
-    export REVIEW_RABBIT_MYSQL_DB="review_rabbit"
-    export REVIEW_RABBIT_MYSQL_PASSWORD="123456"
-    export REVIEW_RABBIT_MYSQL_USER="root"
+    export REVIEW_RABBIT_ENABLE_PLUGINS=[jiffy]
 }
 gen_commit_id(){
     git rev-parse HEAD > GIT_COMMIT_IDS

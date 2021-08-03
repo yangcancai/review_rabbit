@@ -37,9 +37,9 @@
                     {requires, [first]}]}).
 
 -export([run_boot_steps/0, run_boot_steps/1, run_cleanup_steps/1]).
--export([find_steps/0, find_steps/1]).
+-export([find_steps/0, find_steps/1, build_acyclic_graph/3]).
 
--define(INFO(Fmt, Argv), error_logger:info_msg(Fmt, Argv)).
+-include("review_rabbit.hrl").
 
 run_boot_steps() ->
     run_boot_steps(loaded_applications()).

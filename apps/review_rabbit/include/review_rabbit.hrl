@@ -19,23 +19,23 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created : 2021-07-13T08:58:07+00:00
+%%% Created : 2021-08-03T07:23:46+00:00
 %%%-------------------------------------------------------------------
-
--module(review_rabbit_app).
 
 -author("yangcancai").
 
--behaviour(application).
+-ifndef(H_review_rabbit).
 
--export([start/2, stop/1]).
+-define(H_review_rabbit, true).
 
-start(_StartType, _StartArgs) ->
-    {ok, P} = review_rabbit_sup:start_link(),
-    review_rabbit_boot_step:run_boot_steps(),
-    {ok, P}.
+-record(plugin,
+        {name = undefined :: atom(),
+         vsn = <<"0.1.0">> :: binary(),
+         desc = <<"">> :: binary(),
+         location = <<>> :: binary(),
+         applications = [] :: list(), %% 依赖
+         extra_applications = [] :: list()}). %% 系统未加载的依赖
 
-stop(_State) ->
-    ok.
+-define(INFO(Fmt, Argv), error_logger:info_msg(Fmt, Argv)).
 
-%% internal functions
+-endif.
