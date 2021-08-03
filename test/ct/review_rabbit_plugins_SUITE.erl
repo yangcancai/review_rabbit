@@ -65,9 +65,10 @@ dependencies(_) ->
     [kernel, xmerl, jiffy] =
         review_rabbit_plugins:dependencies(false,
                                            [jiffy],
-                                           [#plugin{name = jiffy, applications = [xmerl, kernel]},
-                                            #plugin{name = xmerl, applications = [kernel]},
-                                            #plugin{name = kernel, applications = []},
-                                            #plugin{name = stdlib, applications = [a]},
-                                            #plugin{name = a, applications = [b]},
-                                            #plugin{name = b, applications = []}]).
+                                           [#plugin{name = jiffy,
+                                                    extra_applications = [xmerl, kernel]},
+                                            #plugin{name = xmerl, extra_applications = [kernel]},
+                                            #plugin{name = kernel, extra_applications = []},
+                                            #plugin{name = stdlib, extra_applications = [a]},
+                                            #plugin{name = a, extra_applications = [b]},
+                                            #plugin{name = b, extra_applications = []}]).
